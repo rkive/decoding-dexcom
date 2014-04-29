@@ -1,9 +1,10 @@
 #!/usr/bin/python
 
+import arrow
+import json
 import user
-import dexcom_reader
-from dexcom_reader import readdata
-from pprint import pformat, pprint
+import lib
+from lib import readdata
 
 def main( ):
   Dexcom = readdata.Dexcom
@@ -12,14 +13,46 @@ def main( ):
     sys.stderr.write('Could not find Dexcom G4 Receiver!\n')
     sys.exit(1)
   else:
-    print device
-    dex = Dexcom(device)
-    records = dex.ReadRecords('EGV_DATA')
-    print '### CGM records: %d' % (len(records))
-    print '```python'
-    pprint(records)
-    print '```'
-    print '### CGM records: %d' % (len(records))
+    print "Dexcom G4 Receiver is at %s" % (device)
+
+    dex      = Dexcom(device)
+    records  = dex.ReadRecords('EGV_DATA')
+    cgm_list = convert_to_dict(records)
+
+    print_metadata(cgm_list)
+
+    dump_to_json(cgm_list,'logs/cgm_metrics.json')
+
+def print_metadata(cgm_list):
+  print '### 24 hours of CGM records: %d' % (len(cgm_list))
+  print '### - First Record: %s' % (cgm_list[0]['display_time'])
+  print '### - Last Record:  %s' % (cgm_list[-1]['display_time'])
+  print '### JSON output in logs/cgm_workfile.json'
+
+def convert_to_dict(records):
+  onedayago_utc = arrow.utcnow().replace(hours=-24)
+
+  cgm_list = []
+  for r in records:
+    display_time = arrow.get(r.display_time, 'US/Pacific') # my local CGM timezone
+
+    cgm_dict = { 
+      'eventType':    'cgm_glucose',
+      'display_time': display_time.format('YYYY-MM-DD HH:mm:ss ZZ'),
+      'glucose':      r.glucose,
+      'timestamp':    display_time.to('utc').timestamp,
+      'trend_arrow':  r.trend_arrow,
+    }
+
+    if cgm_dict['timestamp'] > onedayago_utc.timestamp:
+     cgm_list.append(cgm_dict)
+
+  return cgm_list
+
+def dump_to_json(data, filename):
+  f = open(filename, 'w')
+  f.write(json.dumps(data))
+  f.close
 
 if __name__ == '__main__':
   main( )
